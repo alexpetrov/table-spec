@@ -2,8 +2,36 @@
   (:require [clojure.java.jdbc :as jdbc]
             [clojure.spec.alpha :as s]
             [clojure.set :as set]
-            [clojure.spec.gen.alpha :as gen])
-  (:import [java.sql Types]))
+            [clojure.spec.gen.alpha :as gen]
+            [clojure.data.json :as json])
+  (:import [java.sql Types]
+           [org.postgresql.util PGobject]))
+
+(defn value-to-json-pgobject [value]
+  (doto (PGobject.)
+    (.setType "json")
+    (.setValue (json/write-str value))))
+
+(defn value-to-jsonb-pgobject [value]
+  (doto (PGobject.)
+    (.setType "jsonb")
+    (.setValue (json/write-str value))))
+
+(extend-protocol jdbc/ISQLValue
+  clojure.lang.IPersistentMap
+  (sql-value [value] (value-to-json-pgobject value))
+
+  clojure.lang.IPersistentVector
+  (sql-value [value] (value-to-json-pgobject value)))
+
+(extend-protocol jdbc/IResultSetReadColumn
+  PGobject
+  (result-set-read-column [pgobj metadata idx]
+    (let [type  (.getType pgobj)
+          value (.getValue pgobj)]
+      (case type
+        "json" (json/read-str value :key-fn keyword)
+        :else value))))
 
 (defmulti data-type :data_type)
 
@@ -74,9 +102,19 @@
 (defmethod data-type Types/BOOLEAN [_]
   (s/spec boolean?))
 
+(s/def ::json
+  (s/spec #(instance? org.postgresql.util.PGobject %)
+          :gen (fn [] (gen/return (value-to-json-pgobject {})))))
+
+(s/def ::jsonb
+  (s/spec #(instance? org.postgresql.util.PGobject %)
+          :gen (fn [] (gen/return (value-to-jsonb-pgobject {})))))
+
 (defmethod data-type Types/OTHER [{:keys [type_name] :as m}]
   (case type_name
     "uuid" (s/spec uuid?)
+    "json" (s/get-spec ::json)
+    "jsonb" (s/get-spec ::jsonb)
     (throw (unknown-data-type-ex m))))
 
 (defmethod data-type :default [m]

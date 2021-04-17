@@ -60,6 +60,8 @@
                                        real real,
                                        char char,
                                        text text,
+                                       json json,
+                                       jsonb jsonb,
                                        decimal decimal(6, 3),
                                        unique_id uuid)"]
                :down ["drop table foo"]
@@ -77,6 +79,8 @@
                               ;; On Postgres, column_size is 2147483647
                               :foo/text (s/spec (s/and string?
                                                        #(<= (.length %) column_size)))
+                              :foo/json (s/spec #(instance? org.postgresql.util.PGobject %))
+                              :foo/jsonb (s/spec #(instance? org.postgresql.util.PGobject %))
                               :foo/decimal (s/spec decimal?)
                               :foo/unique_id (s/spec uuid?)})]
       (is (s/valid? (:foo/name specs)
